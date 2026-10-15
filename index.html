@@ -91,9 +91,9 @@
   <div class="grid">
     <div class="card">
       <h2><span class="dot"></span>基本情報</h2>
-      <label>額面年収（社会保険料・税引き前の総支給）</label>
+      <label id="incomeLabel">額面年収（社会保険料・税引き前の総支給）</label>
       <input type="number" id="income" value="5000000" step="100000">
-      <div class="hint">月給＋賞与の合計（額面）。例：500万円なら 5000000</div>
+      <div class="hint" id="incomeHint">月給＋賞与の合計（額面）。例：500万円なら 5000000</div>
 
       <label>勤務先の都道府県（健康保険料率）</label>
       <select id="pref"></select>
@@ -105,13 +105,31 @@
           <div class="hint">40〜64歳は介護保険料が加算</div>
         </div>
         <div>
-          <label>加入する公的年金</label>
+          <label>働き方・加入制度</label>
           <select id="kind">
-            <option value="kosei" selected>厚生年金（会社員・公務員）</option>
-            <option value="kokumin">国民年金のみ（自営等）</option>
+            <option value="kosei" selected>会社員（企業年金なし）</option>
+            <option value="kosei_dc">会社員（企業型DCあり）</option>
+            <option value="kosei_db">会社員（確定給付年金DB等あり）</option>
+            <option value="kokka">公務員（共済組合）</option>
+            <option value="kokumin">自営業・フリーランス（国民年金・国保）</option>
+            <option value="daisan">専業主婦(夫)・扶養内パート（第3号）</option>
           </select>
         </div>
       </div>
+      <div id="kindBox" class="hidden">
+        <div class="row">
+          <div>
+            <label>企業型DCの事業主掛金（月額・円）</label>
+            <input type="number" id="dcEmp" value="0" step="1000" min="0">
+          </div>
+          <div>
+            <label>DB等の他制度掛金相当額（月額・円）</label>
+            <input type="number" id="dbOther" value="0" step="1000" min="0">
+          </div>
+        </div>
+        <div class="hint">iDeCoの上限は「62,000円−これらの合計」（2026年12月分〜）。勤務先の企業年金の資料でご確認ください。</div>
+      </div>
+      <div class="hint" id="kindNote"></div>
       <label>社会保険料の実額（任意・年額）</label>
       <input type="number" id="socialReal" value="0" step="1000">
       <div class="hint">源泉徴収票「社会保険料等の金額」から内書き（iDeCo等）を除いた額。0なら料率から自動計算</div>
@@ -160,7 +178,7 @@
         <div>
           <label>iDeCo 月額拠出（円）</label>
           <input type="number" id="ideco" value="0" step="1000">
-          <div class="hint">会社員(企業年金なし)上限 月23,000円（2026年12月分掛金〜は月62,000円に拡大。企業年金ありは合算上限）</div>
+          <div class="hint" id="idecoHint"></div>
         </div>
         <div>
           <label>生命保険料控除（所得税分の控除額）</label>
@@ -389,7 +407,27 @@ const HEALTH_CAP_MONTH  = 1390000;  // 健康保険 標準報酬月額上限
 const NENKIN_FULL = 847300;     // 老齢基礎年金 満額(令和8年度,40年)
 const HOSHU_RATE = 5.481/1000;  // 報酬比例 乗率(2003.4以降 総報酬制)
 
-const IDECO_CAP_MONTH = (new Date()>=new Date(2026,11,1)) ? 62000 : 23000;  // 会社員(企業年金なし) 上限: 2026年12月分掛金(2027/1引落)から62,000円、それ以前は23,000円
+const KOKUMIN_MONTH = 17920;    // 国民年金保険料 令和8年度 月額
+// 公務員（共済組合）本人掛金率（一般組合員・令和7年度の率を概算で使用。組合により異なる）
+const KK_SHORT = 0.04798;   // 短期（医療）
+const KK_WELFARE = 0.00809; // 福祉事業（社会保険料控除の対象外）
+const KK_CARE = 0.00138;    // 介護（40〜64歳）
+const KK_RETPEN = 0.0075;   // 退職等年金給付の掛金（労使折半 1.5%の本人分）
+const KK_GRANT = 0.015;     // 退職等年金給付 付与率
+const KK_RET_ANNUITY = 0.5/15 + 0.5/20; // 付与累計に対する年額の概算（終身50%÷現価率15＋有期50%÷20年）
+const IDECO_SWITCH = new Date(2026,11,1); // 2026年12月1日改正（2027/1/26引落分〜）
+// iDeCo拠出限度額（月額）。2026年12月以降は62,000円ベースへ引上げ
+function idecoCapMonth(kind,dc,db){
+  const nw = new Date()>=IDECO_SWITCH;
+  switch(kind){
+    case 'kosei_dc': return nw? Math.max(0,62000-dc-db) : Math.max(0,Math.min(20000,55000-dc));
+    case 'kosei_db': return nw? Math.max(0,62000-dc-db) : Math.max(0,Math.min(12000,27500-dc-db));
+    case 'kokka':    return nw? 54000 : 20000;   // 62,000−共済掛金相当額8,000
+    case 'kokumin':  return nw? 75000 : 68000;   // 国民年金基金等と合算
+    case 'daisan':   return 23000;
+    default:         return nw? 62000 : 23000;   // 会社員(企業年金なし)
+  }
+}
 
 //=========== ヘルパ ===========
 const yen = n => Math.round(n).toLocaleString('ja-JP')+'円';
@@ -470,6 +508,21 @@ Object.keys(PREF).forEach(k=>{
   if(k==="東京都")o.selected=true;prefSel.appendChild(o);
 });
 let spouseOn=0, avgMode='now';
+function updateKind(){
+  const k=document.getElementById('kind').value;
+  const dc=+document.getElementById('dcEmp').value||0, db=+document.getElementById('dbOther').value||0;
+  document.getElementById('kindBox').classList.toggle('hidden',!(k==='kosei_dc'||k==='kosei_db'));
+  const jiei=(k==='kokumin');
+  document.getElementById('incomeLabel').textContent=jiei?'事業所得（収入−経費−青色申告特別控除等）':(k==='daisan'?'本人の年収（パート等・額面）':'額面年収（社会保険料・税引き前の総支給）');
+  document.getElementById('incomeHint').textContent=jiei?'所得金額で入力します（給与所得控除は適用しません）。':(k==='daisan'?'130万円を超えると配偶者の扶養・第3号から外れ、自分で保険料を負担します。':'月給＋賞与の合計（額面）。例：500万円なら 5000000');
+  const notes={kosei:'協会けんぽ等の健康保険＋厚生年金＋雇用保険。',kosei_dc:'企業型DCの事業主掛金を入力すると、iDeCoの上限が自動で下がります。',kosei_db:'DB等の他制度掛金相当額を入力すると、iDeCoの上限が自動で下がります。',kokka:'共済組合：短期・介護・長期（厚生年金と同率）・退職等年金給付の掛金。雇用保険はなし。共済の率は組合ごとに異なるため概算です（実額は下の「社会保険料の実額」で上書き可）。',kokumin:'国民年金（月17,920円）＋国民健康保険（自治体で異なるため概算）。厚生年金・雇用保険はなし。',daisan:'保険料負担なし（第3号）。基礎年金は受給できますが、厚生年金・退職等年金はありません。'};
+  document.getElementById('kindNote').textContent=notes[k]||'';
+  const cap=idecoCapMonth(k,dc,db), nw=new Date()>=IDECO_SWITCH;
+  document.getElementById('idecoHint').textContent=`この区分の上限 月${cap.toLocaleString('ja-JP')}円（${nw?'2026年12月分掛金〜の新上限':'現行。2026年12月分掛金（2027/1引落）から引上げ予定'}）。`;
+}
+['kind','dcEmp','dbOther'].forEach(id=>document.getElementById(id).addEventListener('input',updateKind));
+document.getElementById('kind').addEventListener('change',updateKind);
+updateKind();
 document.querySelectorAll('#spouseSeg button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#spouseSeg button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');spouseOn=+b.dataset.v;
@@ -487,6 +540,8 @@ document.getElementById('calc').onclick=()=>{
   const pref=document.getElementById('pref').value;
   const age=+document.getElementById('age').value||0;
   const kind=document.getElementById('kind').value;
+  const dcEmp=+document.getElementById('dcEmp').value||0, dbOther=+document.getElementById('dbOther').value||0;
+  const isKosei=(kind==='kosei'||kind==='kosei_dc'||kind==='kosei_db'), isKokka=(kind==='kokka');
   const depG=+document.getElementById('depG').value||0;
   const depS=+document.getElementById('depS').value||0;
   const depO=+document.getElementById('depO').value||0;
@@ -502,8 +557,8 @@ document.getElementById('calc').onclick=()=>{
   const spouseInc = spouseOn? (+document.getElementById('spouseInc').value||0) : null;
 
   //--- 社会保険料(本人・年額) ---
-  let health=0,care=0,kosodate=0,pension=0,emp=0;
-  if(kind==='kosei'){
+  let health=0,care=0,kosodate=0,pension=0,emp=0,retpen=0,welfare=0;
+  if(isKosei){
     const mPay=income/12;
     const hBase=Math.min(mPay,HEALTH_CAP_MONTH)*12;
     const pBase=Math.min(mPay,PENSION_CAP_MONTH)*12;
@@ -512,20 +567,33 @@ document.getElementById('calc').onclick=()=>{
     kosodate= hBase*KOSODATE_RATE;
     pension = pBase*PENSION_RATE;
     emp     = income*EMP_RATE;
+  } else if(isKokka){
+    // 共済組合: 短期＋介護＋長期(厚生年金)＋退職等年金。雇用保険なし。福祉事業分は社会保険料控除の対象外
+    const mPay=income/12;
+    const hBase=Math.min(mPay,HEALTH_CAP_MONTH)*12;
+    const pBase=Math.min(mPay,PENSION_CAP_MONTH)*12;
+    health  = hBase*KK_SHORT;
+    care    = (age>=40&&age<=64)? hBase*KK_CARE : 0;
+    kosodate= hBase*KOSODATE_RATE;
+    pension = pBase*PENSION_RATE;
+    retpen  = pBase*KK_RETPEN;
+    welfare = hBase*KK_WELFARE;
+  } else if(kind==='daisan'){
+    // 第3号被保険者: 保険料負担なし（配偶者の被扶養者）
   } else {
-    // 国民年金 + 国民健康保険(概算)。簡略: 国民年金 月17,510×12、国保は所得の約10%(上限あり)概算
-    pension = 210120; // 国民年金 令和8年度 月17,510円 概算
-    const kokuhoBase=Math.max(0, income-kyuyoControl(income)-430000);
+    // 国民年金 + 国民健康保険(概算)。入力は事業所得（収入−経費−青色申告特別控除等）
+    pension = KOKUMIN_MONTH*12;
+    const kokuhoBase=Math.max(0, income-430000);
     health=Math.min(kokuhoBase*0.10, 1090000); // 国保概算(上限ざっくり)
     care=(age>=40&&age<=64)?Math.min(kokuhoBase*0.018,170000):0;
   }
-  const socialAuto = health+care+kosodate+pension+emp;
+  const socialAuto = health+care+kosodate+pension+emp+retpen;
   const socialManual = socialReal>0;
   const social = socialManual? socialReal : socialAuto;
 
   //--- 所得 ---
-  const kyuyoCtrl=kyuyoControl(income);
-  const shotoku=Math.max(0, income-kyuyoCtrl); // 給与所得=合計所得
+  const kyuyoCtrl=(kind==='kokumin')?0:kyuyoControl(income);
+  const shotoku=Math.max(0, income-kyuyoCtrl); // 給与所得(自営業は事業所得)=合計所得
   //--- 所得控除 ---
   const spIt = spouseDeduction(spouseInc, shotoku,'it');
   const spRt = spouseDeduction(spouseInc, shotoku,'rt');
@@ -558,8 +626,8 @@ document.getElementById('calc').onclick=()=>{
   const juminTax = shotokuwari + kintouwari;
 
   const tax = incomeTax + juminTax;
-  const net = income - social - tax;
-  const eff = income>0?(social+tax)/income*100:0;
+  const net = income - social - welfare - tax;
+  const eff = income>0?(social+welfare+tax)/income*100:0;
   const marg = marginalRate(taxableIt);
   const margTotal = marg*1.021 + 0.10; // 所得税(復興込)+住民税
 
@@ -568,21 +636,24 @@ document.getElementById('calc').onclick=()=>{
   const avgInc = avgMode==='custom'? (+document.getElementById('avgInc').value||income) : income;
   const kiso = NENKIN_FULL*Math.min(years,40)/40;
   let hoshu=0;
-  if(kind==='kosei'){
+  let retPenYear=0;
+  if(isKosei||isKokka){
     const avgStdMonth=Math.min(avgInc/12, PENSION_CAP_MONTH);
     hoshu = avgStdMonth*HOSHU_RATE*years*12;
+    if(isKokka) retPenYear = Math.min(avgInc,PENSION_CAP_MONTH*12)*KK_GRANT*years*KK_RET_ANNUITY;
   }
-  const pensionYear = kiso+hoshu;
+  const pensionYear = kiso+hoshu+retPenYear;
 
   //--- 節税試算 ---
-  const idecoMax=IDECO_CAP_MONTH*12;
+  const idecoCapM=idecoCapMonth(kind,dcEmp,dbOther);
+  const idecoMax=idecoCapM*12;
   const idecoSpace=Math.max(0,idecoMax-idecoY);
   const idecoSaveNow = idecoY*margTotal;
   const idecoSaveMax = idecoMax*margTotal;
   // ふるさと納税上限(目安)
   const furusato = shotokuwari>0 ? Math.floor( (shotokuwari*0.2)/(0.9 - marg*1.021) + 2000 ) : 2000;
 
-  render({income,social,socialAuto,socialManual,health,care,kosodate,pension,emp,kind,
+  render({income,social,socialAuto,socialManual,health,care,kosodate,pension,emp,kind,isKosei,isKokka,retpen,welfare,retPenYear,idecoCapM,
     shotoku,kyuyoCtrl,kisoIt,spIt,depItoku,lifeIt,quakeIt,singleIt,single,idecoY,medical,other,taxableIt,incomeTax,
     kisoRt,taxableRt,shotokuwari,kintouwari,chosei,juminTax,
     tax,net,eff,marg,margTotal,
@@ -622,24 +693,29 @@ function render(d){
     s+=`<tr class="tot"><td>合計（本人負担）</td><td>${yen(d.social)}</td></tr>`;
     document.getElementById('socTable').innerHTML=s;
   } else {
-  s=`<tr><td>厚生年金保険料</td><td>${yen(d.pension)}</td></tr>`;
-  if(d.kind==='kosei'){
-    s+=`<tr><td>健康保険料</td><td>${yen(d.health)}</td></tr>`;
+  if(d.isKosei||d.isKokka){
+    s=`<tr><td>${d.isKokka?'厚生年金保険料（共済・長期）':'厚生年金保険料'}</td><td>${yen(d.pension)}</td></tr>`;
+    s+=`<tr><td>${d.isKokka?'短期掛金（医療）':'健康保険料'}</td><td>${yen(d.health)}</td></tr>`;
     if(d.care>0)s+=`<tr><td>介護保険料（40〜64歳）</td><td>${yen(d.care)}</td></tr>`;
     s+=`<tr><td>子ども・子育て支援金</td><td>${yen(d.kosodate)}</td></tr>`;
-    s+=`<tr><td>雇用保険料</td><td>${yen(d.emp)}</td></tr>`;
+    if(d.isKokka) s+=`<tr><td>退職等年金給付の掛金</td><td>${yen(d.retpen)}</td></tr>`;
+    else s+=`<tr><td>雇用保険料</td><td>${yen(d.emp)}</td></tr>`;
+  }else if(d.kind==='daisan'){
+    s=`<tr><td>保険料負担なし（配偶者の被扶養者・第3号）</td><td>0円</td></tr>`;
   }else{
+    s=`<tr><td>国民年金保険料</td><td>${yen(d.pension)}</td></tr>`;
     s+=`<tr><td>国民健康保険料（概算）</td><td>${yen(d.health)}</td></tr>`;
     if(d.care>0)s+=`<tr><td>介護分（概算）</td><td>${yen(d.care)}</td></tr>`;
   }
   s+=`<tr class="tot"><td>合計（本人負担）</td><td>${yen(d.social)}</td></tr>`;
-  s+=`<tr class="sub-row"><td>会社負担も含めた総額の目安</td><td>${d.kind==='kosei'?'約'+yen(d.social*1.9):'-'}</td></tr>`;
+  if(d.welfare>0) s+=`<tr class="sub-row"><td>共済 福祉事業の掛金（控除対象外・別枠）</td><td>${yen(d.welfare)}</td></tr>`;
+  s+=`<tr class="sub-row"><td>会社負担も含めた総額の目安</td><td>${(d.isKosei||d.isKokka)?'約'+yen(d.social*1.9):'-'}</td></tr>`;
   document.getElementById('socTable').innerHTML=s;
   }
 
   // 税 表
-  let t=`<tr><td>給与所得（収入−給与所得控除）</td><td>${yen(d.shotoku)}</td></tr>`;
-  t+=`<tr class="sub-row"><td>給与所得控除</td><td>−${yen(d.kyuyoCtrl)}</td></tr>`;
+  let t=d.kind==='kokumin'?`<tr><td>事業所得（入力値）</td><td>${yen(d.shotoku)}</td></tr>`:`<tr><td>給与所得（収入−給与所得控除）</td><td>${yen(d.shotoku)}</td></tr>`;
+  if(d.kind!=='kokumin') t+=`<tr class="sub-row"><td>給与所得控除</td><td>−${yen(d.kyuyoCtrl)}</td></tr>`;
   t+=`<tr><td>所得控除 合計（所得税）</td><td>${yen(d.kisoIt+d.social+d.spIt+d.depItoku+d.lifeIt+d.quakeIt+d.singleIt+d.idecoY+d.medical+d.other)}</td></tr>`;
   t+=`<tr class="sub-row"><td>基礎控除</td><td>${yen(d.kisoIt)}</td></tr>`;
   t+=`<tr class="sub-row"><td>社会保険料控除</td><td>${yen(d.social)}</td></tr>`;
@@ -676,9 +752,11 @@ function render(d){
   // 年金ドーナツ
   const tot2=d.pensionYear||1;
   const segs=[['老齢基礎年金',d.kiso,'var(--amber)'],['老齢厚生年金(報酬比例)',d.hoshu,'var(--blue)']];
+  if(d.retPenYear>0) segs.push(['退職等年金給付(旧職域加算の代わり)',d.retPenYear,'var(--teal)']);
   document.getElementById('pensionDonut').innerHTML=donut(segs,tot2);
   let p=`<tr><td>老齢基礎年金（年）</td><td>${yen(d.kiso)}</td></tr>`;
-  if(d.kind==='kosei')p+=`<tr><td>老齢厚生年金 報酬比例（年）</td><td>${yen(d.hoshu)}</td></tr>`;
+  if(d.isKosei||d.isKokka)p+=`<tr><td>老齢厚生年金 報酬比例（年）</td><td>${yen(d.hoshu)}</td></tr>`;
+  if(d.retPenYear>0)p+=`<tr><td>退職等年金給付（年・概算）</td><td>${yen(d.retPenYear)}</td></tr>`;
   p+=`<tr class="tot"><td>合計（年額）</td><td>${yen(d.pensionYear)}</td></tr>`;
   p+=`<tr><td><b>月額の目安</b></td><td><b>${yen(d.pensionYear/12)}</b></td></tr>`;
   p+=`<tr class="sub-row"><td>加入見込み</td><td>${d.years}年</td></tr>`;
@@ -687,7 +765,7 @@ function render(d){
   // 節税
   document.getElementById('margRate').textContent=(d.margTotal*100).toFixed(1)+'%';
   let sv=`<tr><td>iDeCo 今の拠出での年間節税</td><td>${yen(d.idecoSaveNow)}</td></tr>`;
-  sv+=`<tr class="sub-row"><td>上限まで(月${IDECO_CAP_MONTH.toLocaleString('ja-JP')}円)拠出した場合</td><td>年 ${yen(d.idecoSaveMax)}節税</td></tr>`;
+  sv+=`<tr class="sub-row"><td>上限まで(月${d.idecoCapM.toLocaleString('ja-JP')}円)拠出した場合</td><td>年 ${yen(d.idecoSaveMax)}節税</td></tr>`;
   sv+=`<tr><td>ふるさと納税の目安上限</td><td>${yen(d.furusato)}</td></tr>`;
   sv+=`<tr class="sub-row"><td>実質負担2,000円で返礼品（寄附額の3割目安）</td><td>約${yen(d.furusato*0.3)}相当</td></tr>`;
   if(d.idecoSpace>0)sv+=`<tr><td>iDeCoの拠出余地（年）</td><td>${yen(d.idecoSpace)}</td></tr>`;
