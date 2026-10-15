@@ -160,12 +160,12 @@
         <div>
           <label>iDeCo 月額拠出（円）</label>
           <input type="number" id="ideco" value="0" step="1000">
-          <div class="hint">会社員(企業年金なし)上限 月23,000円</div>
+          <div class="hint">会社員(企業年金なし)上限 月23,000円（2026年12月分掛金〜は月62,000円に拡大。企業年金ありは合算上限）</div>
         </div>
         <div>
           <label>生命保険料控除（所得税分の控除額）</label>
           <input type="number" id="lifeins" value="0" step="1000">
-          <div class="hint">源泉徴収票の「生命保険料の控除額」。住民税分は概算0.7倍（上限7万）で自動計算</div>
+          <div class="hint">源泉徴収票の「生命保険料の控除額」。住民税分は概算0.7倍（上限7万）で自動計算。※令和8・9年分は23歳未満の扶養親族がいる場合、新生命保険料の一般分の限度額が4万→6万円（合計12万円は不変）</div>
         </div>
       </div>
       <div class="row">
@@ -389,7 +389,7 @@ const HEALTH_CAP_MONTH  = 1390000;  // 健康保険 標準報酬月額上限
 const NENKIN_FULL = 847300;     // 老齢基礎年金 満額(令和8年度,40年)
 const HOSHU_RATE = 5.481/1000;  // 報酬比例 乗率(2003.4以降 総報酬制)
 
-const IDECO_CAP_MONTH = 23000;  // 会社員(企業年金なし) 現行上限
+const IDECO_CAP_MONTH = (new Date()>=new Date(2026,11,1)) ? 62000 : 23000;  // 会社員(企業年金なし) 上限: 2026年12月分掛金(2027/1引落)から62,000円、それ以前は23,000円
 
 //=========== ヘルパ ===========
 const yen = n => Math.round(n).toLocaleString('ja-JP')+'円';
@@ -687,7 +687,7 @@ function render(d){
   // 節税
   document.getElementById('margRate').textContent=(d.margTotal*100).toFixed(1)+'%';
   let sv=`<tr><td>iDeCo 今の拠出での年間節税</td><td>${yen(d.idecoSaveNow)}</td></tr>`;
-  sv+=`<tr class="sub-row"><td>上限まで(月23,000円)拠出した場合</td><td>年 ${yen(d.idecoSaveMax)}節税</td></tr>`;
+  sv+=`<tr class="sub-row"><td>上限まで(月${IDECO_CAP_MONTH.toLocaleString('ja-JP')}円)拠出した場合</td><td>年 ${yen(d.idecoSaveMax)}節税</td></tr>`;
   sv+=`<tr><td>ふるさと納税の目安上限</td><td>${yen(d.furusato)}</td></tr>`;
   sv+=`<tr class="sub-row"><td>実質負担2,000円で返礼品（寄附額の3割目安）</td><td>約${yen(d.furusato*0.3)}相当</td></tr>`;
   if(d.idecoSpace>0)sv+=`<tr><td>iDeCoの拠出余地（年）</td><td>${yen(d.idecoSpace)}</td></tr>`;
@@ -695,7 +695,7 @@ function render(d){
 
   // tips
   const tips=[
-    ['iDeCo（個人型確定拠出年金）','掛金が全額所得控除。会社員(企業年金なし)は月2.3万円が上限。2026年12月改正で上限が月6.2万円に拡大予定。運用益も非課税。'],
+    ['iDeCo（個人型確定拠出年金）','掛金が全額所得控除。会社員(企業年金なし)は月2.3万円が上限だが、2026年12月分掛金（2027年1月引落分）から月6.2万円に拡大（企業年金ありは合算上限）。運用益も非課税。'],
     ['ふるさと納税','実質2,000円で返礼品。上限はあなたの場合 約'+yen(d.furusato)+'。ワンストップ特例なら確定申告不要。'],
     ['新NISA','年間最大360万円・生涯1,800万円まで運用益が非課税。所得控除にはならないが手取りからの資産形成に有効。'],
     ['生命保険料控除','一般・介護医療・個人年金で所得税最大12万円・住民税7万円。23歳未満の扶養がある場合は一般枠が拡充。'],
